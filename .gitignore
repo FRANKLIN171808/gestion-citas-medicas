@@ -1,0 +1,8 @@
+target/
+out/
+.idea/
+*.iml
+datos_centro.dat
+reportes_generados/
+
+

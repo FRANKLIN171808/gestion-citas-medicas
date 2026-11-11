@@ -1,0 +1,384 @@
+@startuml
+title TF_EquipoNN - Sistema de Gestión de Citas Médicas (Diagrama de Clases)
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam nodesep 40
+skinparam ranksep 60
+skinparam defaultFontSize 13
+
+' ============================================================
+package "app" {
+  class Main {
+    +{static} main(String[]): void
+  }
+
+  class MenuPrincipal {
+    -CentroSalud centro
+    -Recepcionista recepcionista
+    -LectorConsola lector
+    -CitaDAO citaDAO
+    +iniciar(): void
+    -ejecutar(int): void
+    -elegirDeLista(...): T
+    -programarCita(): void
+    -pagarCita(): void
+    -menuMedicos(): void
+    -menuReportes(): void
+    -menuArchivo(): void
+    -menuBaseDatos(): void
+  }
+
+  class PersonalPredeterminado <<final>> {
+    +{static} cargarEn(CentroSalud): void
+  }
+}
+
+' ============================================================
+package "modelo" {
+
+  enum EstadoCita <<enum>> {
+    PROGRAMADA
+    CONFIRMADA
+    ATENDIDA
+    CANCELADA
+  }
+
+  enum Especialidad <<enum>> {
+    MEDICINA_GENERAL
+    ODONTOLOGIA
+    ENFERMERIA
+    OBSTETRICIA
+    EMERGENCIA
+    -String nombre
+    -double tarifa
+    +getTarifa(): double
+  }
+
+  enum TipoSeguro <<enum>> {
+    SIS_GRATUITO
+    SIS_EMPRENDEDOR
+    SIS_MICROEMPRESAS
+    SIS_INDEPENDIENTE
+    ESSALUD
+    EPS
+    FFAA_PNP
+    SIN_SEGURO
+    -String nombre
+    -Cobro cobro
+    +requiereAportes(): boolean
+    +{static} desdeTexto(String): TipoSeguro
+  }
+
+  class CitaResumen <<record>> {
+    +int idCita
+    +String paciente
+    +String medico
+    +LocalDateTime fechaHora
+    +EstadoCita estado
+    +{static} de(Cita): CitaResumen
+  }
+
+  abstract class Persona <<sealed>> {
+    -String dni
+    -String nombres
+    -String apellidos
+    -LocalDate fechaNacimiento
+    #String telefono
+    #String email
+    #Persona(dni, nombres, apellidos, fechaNacimiento)
+    +{abstract} getRol(): String
+    +getNombreCompleto(): String
+    +calcularEdad(): int
+  }
+
+  class Paciente <<final>> {
+    -TipoSeguro tipoSeguro
+    -boolean aportesAlDia
+    -String grupoSanguineo
+    -HistoriaClinica historia
+    +Paciente(dni, nombres, apellidos, fechaNacimiento, tipoSeguro, aportesAlDia)
+    +getRol(): String
+    +estaExonerado(): boolean
+    +getHistoria(): HistoriaClinica
+  }
+
+  class Medico <<final>> {
+    -String cmp
+    -String rne
+    -Especialidad especialidad
+    -List<Cita> agenda
+    +Medico(dni, nombres, apellidos, fechaNacimiento, cmp, rne, especialidad)
+    +getRol(): String
+    +{static} esDiaDeAtencion(LocalDate): boolean
+    +turnosDelDia(): List<LocalTime>
+    +turnosLibres(LocalDate, LocalDateTime): List<LocalTime>
+    +estaDisponible(LocalDateTime): boolean
+    +agregarCita(Cita): void
+  }
+
+  class Recepcionista <<final>> {
+    -String turno
+    +Recepcionista(dni, nombres, apellidos, fechaNacimiento, turno)
+    +getRol(): String
+    +registrarCita(Paciente, Medico, Consultorio, LocalDateTime, String): Cita
+  }
+
+  class CentroSalud {
+    -String nombre
+    -String direccion
+    -List<Consultorio> consultorios
+    -Map<String, Paciente> pacientes
+    -List<Medico> medicos
+    -List<Recepcionista> personal
+    -List<Cita> citas
+    +registrarPaciente(Paciente): void
+    ~registrarMedico(Medico): void <<personal predeterminado>>
+    ~registrarRecepcionista(Recepcionista): void <<personal predeterminado>>
+    ~agregarConsultorio(int, int): void <<personal predeterminado>>
+    +programarCita(...): Cita
+    +consultoriosLibres(LocalDateTime): List<Consultorio>
+    +citasActivas(): List<Cita>
+    +citasPendientesDePago(): List<Cita>
+    +restaurarCita(Cita): void
+    +citasPorEstado(): Map<EstadoCita, Long>
+    +ingresosTotales(): double
+    +citasOrdenadasPorFecha(): List<Cita>
+    +guardarEn(Path): void
+    +{static} cargarDe(Path): CentroSalud
+  }
+
+  class Consultorio {
+    -int numero
+    -int piso
+    +Consultorio(numero, piso)
+  }
+
+  class Cita {
+    -int id
+    -LocalDateTime fechaHora
+    -String motivo
+    -double costo
+    -EstadoCita estado
+    -boolean pagada
+    -String metodoPago
+    +Cita(paciente, medico, fechaHora)
+    +Cita(paciente, medico, consultorio, fechaHora, motivo)
+    +{static} reconstruir(...): Cita
+    +confirmar(): void
+    +cancelar(): void
+    +atender(): void
+    +pagar(MetodoPago): boolean
+  }
+
+  class HistoriaClinica {
+    -String numero
+    -List<Cita> atenciones
+    +agregarAtencion(Cita): void
+    +ultimasAtenciones(): SequencedCollection<Cita>
+  }
+
+}
+
+' ============================================================
+package "pagos" {
+
+  interface MetodoPago <<interface>> {
+    +procesarPago(double): boolean
+    +getNombre(): String
+  }
+
+  class PagoTarjeta {
+    -String numeroTarjeta
+    -String titular
+    +procesarPago(double): boolean
+    +getNombre(): String
+  }
+
+  class PagoEfectivo {
+    -double montoEntregado
+    +procesarPago(double): boolean
+    +calcularVuelto(double): double
+    +getNombre(): String
+  }
+}
+
+' ============================================================
+package "reportes" {
+
+  abstract class Reporte {
+    #String titulo
+    +{final} generar(List<Cita>): String
+    +exportar(List<Cita>, Path): void
+    #{abstract} encabezado(): String
+    #{abstract} formatearFila(Cita): String
+    #{abstract} pie(): String
+  }
+
+  class ReporteHTML {
+    #encabezado(): String
+    #formatearFila(Cita): String
+    #pie(): String
+  }
+
+  class ReporteXML {
+    #encabezado(): String
+    #formatearFila(Cita): String
+    #pie(): String
+  }
+
+  class ComprobanteCita {
+    -CentroSalud centro
+    +generar(Cita): String
+    +exportar(Cita, Path): void
+  }
+
+  class ReporteDisponibilidad {
+    -CentroSalud centro
+    +generar(): String
+    +exportar(Path): void
+  }
+}
+
+' ============================================================
+package "util" {
+
+  class "Paginador<T>" as Paginador {
+    -List<T> elementos
+    -int tamanoPagina
+    +Paginador(List<T>, int)
+    +totalPaginas(): int
+    +getPagina(int): List<T>
+  }
+
+  class Navegador <<final>> {
+    +{static} abrir(Path): boolean
+  }
+
+  class LectorConsola {
+    -Scanner scanner
+    +leerEntero(String, int, int): int
+    +leerDecimal(String, double): double
+    +leerTexto(String): String
+    +leerDni(String): String
+    +leerDigitos(String, int): String
+    +leerFecha(String): LocalDate
+    +leerFechaHora(String): LocalDateTime
+    +leerConfirmacion(String): boolean
+  }
+}
+
+' ============================================================
+package "dao" {
+
+  interface "DAO<T>" as DAO <<interface>> {
+    +insertar(T): void
+    +buscarPorId(int): Optional<T>
+    +listar(): List<T>
+    +actualizar(T): void
+    +eliminar(int): void
+  }
+
+  class ConexionBD {
+    -String url
+    -String usuario
+    -String clave
+    +getConexion(): Connection
+    +probar(): boolean
+  }
+
+  class CentroDAO {
+    -ConexionBD conexion
+    +cargarEn(CentroSalud): void
+    +getAdvertencias(): List<String>
+  }
+
+  class CitaDAO {
+    -ConexionBD conexion
+    +insertar(Cita): void
+    +buscarPorId(int): Optional<Cita>
+    +listar(): List<Cita>
+    +actualizar(Cita): void
+    +eliminar(int): void
+    +resumen(): List<CitaResumen>
+  }
+}
+
+' ============================================================
+' RELACIONES
+' ============================================================
+
+' --- Herencia ---
+Persona <|-- Paciente
+Persona <|-- Medico
+Persona <|-- Recepcionista
+
+' --- Composición ---
+CentroSalud *-- "1..*" Consultorio
+Paciente *-- "1" HistoriaClinica
+
+' --- Agregación ---
+CentroSalud o-- "0..*" Paciente
+CentroSalud o-- "0..*" Medico
+CentroSalud o-- "0..*" Recepcionista
+CentroSalud o-- "0..*" Cita
+Medico o-- "0..*" Cita : agenda
+HistoriaClinica o-- "0..*" Cita
+
+' --- Asociación ---
+Cita "0..*" --> "1" Paciente
+Cita "0..*" --> "1" Medico
+Cita "0..*" --> "0..1" Consultorio
+Cita --> EstadoCita
+Medico --> Especialidad
+Paciente --> TipoSeguro
+
+' --- Interfaces ---
+MetodoPago <|.. PagoTarjeta
+MetodoPago <|.. PagoEfectivo
+DAO <|.. CitaDAO
+
+' --- Clases abstractas ---
+Reporte <|-- ReporteHTML
+Reporte <|-- ReporteXML
+
+' --- Dependencias ---
+Cita ..> MetodoPago : <<usa>>
+Recepcionista ..> Cita : <<crea>>
+Reporte ..> Cita : <<usa>>
+ComprobanteCita ..> Cita : <<usa>>
+ReporteDisponibilidad ..> Medico : <<usa>>
+CitaResumen ..> Cita : <<se crea de>>
+CitaDAO ..> Cita : <<persiste>>
+CitaDAO ..> CitaResumen : <<devuelve>>
+CitaDAO --> ConexionBD
+CentroDAO --> ConexionBD
+CentroDAO ..> CentroSalud : <<carga personal, pacientes y citas>>
+
+' --- Capa de aplicación ---
+Main ..> MenuPrincipal : <<crea>>
+MenuPrincipal --> CentroSalud
+MenuPrincipal --> LectorConsola
+MenuPrincipal --> CitaDAO
+MenuPrincipal ..> Paginador : <<usa>>
+MenuPrincipal ..> Reporte : <<usa>>
+MenuPrincipal ..> ComprobanteCita : <<usa>>
+MenuPrincipal ..> ReporteDisponibilidad : <<usa>>
+MenuPrincipal ..> Navegador : <<usa>>
+Main ..> CentroDAO : <<carga al iniciar>>
+Main ..> PersonalPredeterminado : <<respaldo sin BD>>
+PersonalPredeterminado ..> CentroSalud
+MenuPrincipal ..> MetodoPago : <<usa>>
+
+' --- Serialización ---
+interface Serializable <<interface>>
+Serializable <|.. Persona
+Serializable <|.. Cita
+Serializable <|.. CentroSalud
+
+note bottom of Serializable
+  También son Serializable:
+  Consultorio y HistoriaClinica
+end note
+
+@enduml
